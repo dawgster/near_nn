@@ -1,0 +1,28 @@
+FROM ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG RUST_TOOLCHAIN=stable
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    clang \
+    cmake \
+    curl \
+    git \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN}
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN curl --proto '=https' --tlsv1.2 -LsSf \
+    https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
+
+RUN rustup component add rust-src --toolchain ${RUST_TOOLCHAIN} && \
+    rustup target add wasm32-unknown-unknown --toolchain ${RUST_TOOLCHAIN}
+
+WORKDIR /workspace
+
+CMD ["cargo", "test", "--test", "sandbox", "--", "--nocapture"]

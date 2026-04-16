@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "near-mnist-web4-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-04-14",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "icypee.xyz",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.icypee.xyz",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "CONTRACT_ID": "icypee.testnet",
+    "NEAR_RPC_URL": "https://rpc.testnet.near.org"
+  }
+}

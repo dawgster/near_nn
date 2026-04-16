@@ -1,0 +1,29 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+
+# NEAR sandbox binaries
+.nearcore-bin/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
