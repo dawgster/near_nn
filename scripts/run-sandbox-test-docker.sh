@@ -23,4 +23,5 @@ docker run --rm \
     cargo test --test sandbox -- --nocapture
     cargo test --manifest-path mnist_mlp_contract/Cargo.toml --test sandbox -- --nocapture
     cargo test --manifest-path hotdog_cnn_contract/Cargo.toml --test sandbox -- --nocapture
+    cargo test --manifest-path flappy_bird_contract/Cargo.toml --test sandbox -- --nocapture
   '

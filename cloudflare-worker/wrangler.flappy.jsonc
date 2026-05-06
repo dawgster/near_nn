@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "near-flappy-web4-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-06",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "ironclaw.icypee.xyz",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "CONTRACT_ID": "flappy.hotdog-icypee.testnet",
+    "NEAR_RPC_URL": "https://rpc.testnet.near.org"
+  }
+}

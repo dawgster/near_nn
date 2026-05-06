@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 worker_dir="${repo_root}/cloudflare-worker"
+config="${1:-wrangler.jsonc}"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm is required" >&2
@@ -15,4 +16,4 @@ if [[ ! -d node_modules ]]; then
   npm install
 fi
 
-npx wrangler deploy
+npx wrangler deploy -c "${config}"
