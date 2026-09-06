@@ -28,6 +28,7 @@ Both frontends are served from NEAR contracts via [Web4](https://web4.near.page)
 ├── mnist_mlp_contract/        # MNIST MLP + Web4 frontend
 ├── hotdog_cnn_contract/       # Hotdog CNN + Web4 frontend
 ├── flappy_bird_contract/      # Fixed-point Flappy Bird + Web4 frontend
+├── cabal_detector/            # On-chain insider-wallet detection (Python, EVM)
 ├── cloudflare-worker/         # Web4 proxy for custom domains
 ├── scripts/                   # Deploy + sandbox helpers
 └── Dockerfile.sandbox         # Ubuntu 24.04 runner for near-sandbox tests
@@ -95,6 +96,15 @@ To map a custom domain, edit `cloudflare-worker/wrangler*.jsonc` and deploy the 
 ```bash
 ./scripts/deploy-cloudflare-worker.sh
 ```
+
+## Also in this repo
+
+- **[`cabal_detector/`](cabal_detector/)** — unrelated to the neural networks: a
+  Python tool that flags insider ("cabal") wallets around a token launch on
+  [Robinhood Chain](https://docs.robinhood.com/chain/connecting) or any other EVM
+  chain — wallets allocated supply before liquidity existed, wallets that bought
+  the opening block, and wallets that keep showing up early across launches. Run
+  `python -m cabal demo` in that directory to see it work with no RPC endpoint.
 
 ## Per-contract details
 

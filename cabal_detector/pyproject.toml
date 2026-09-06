@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cabal-detector"
+version = "0.1.0"
+description = "Detect insider ('cabal') wallets around token launches on Robinhood Chain and other EVM chains"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+cabal = "cabal.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cabal*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
