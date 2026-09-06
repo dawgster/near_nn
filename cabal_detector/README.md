@@ -1,8 +1,11 @@
 # cabal_detector — insider wallet detection for token launches
 
-Finds the wallets that were **in before everyone else**: the ones holding supply
-before a pool existed, the ones that bought in the opening block, and the ones
-that do it again on the next launch.
+Finds the wallets that were **in before everyone else on coins that actually
+ran**: the ones holding supply before a pool existed, the ones that bought in the
+opening block, and the ones that do it again on the next winner.
+
+Coins that went nowhere are screened out before any wallet is named. Whoever was
+early on a token that never moved made nothing, so their addresses are noise.
 
 Built for [Robinhood Chain](https://docs.robinhood.com/chain/connecting) (EVM,
 Arbitrum Orbit, chain id **4663**), and works on any EVM chain by pointing
@@ -14,6 +17,7 @@ Arbitrum Orbit, chain id **4663**), and works on any EVM chain by pointing
 | --- | --- |
 | *"who got allocated before the sale?"* | `pre_liquidity_allocation` — held supply before a pool existed at all. It was handed to them; they never bought it. |
 | *"who bought before it pumped?"* | `bought_before_pump` + `snipe_latency` + `early_buyer_rank` — already holding when the run-up started, having entered at or near the first public trade. |
+| *"only on coins that actually pumped"* | The pump screen runs before any wallet scoring, so duds never contribute addresses. |
 
 Neither is conclusive alone, which is the whole design: a wallet is ranked by how
 many independent signals converge on it, and every flag ships the sentence that
@@ -22,7 +26,7 @@ justifies it.
 ## Quick start
 
 No RPC needed to see what the output looks like — there is a built-in fixture
-with planted insiders:
+with planted insiders plus one launch that goes nowhere:
 
 ```bash
 cd cabal_detector
@@ -30,18 +34,29 @@ pip install -r requirements.txt
 python -m cabal demo
 ```
 
-Against a real token, pull once and analyze many times:
+### The full workflow: chain → winners → wallets
 
 ```bash
-# 1. Ingest. Slow, rate-limited, cache it.
-python -m cabal snapshot \
-  --token 0xTOKEN \
-  --quote 0xWETH_OR_STABLE \
-  --out-dir snapshots
+# 1. Sweep a block range for launches, keep only the ones that pumped.
+python -m cabal discover \
+  --factory-v2 0xDEX_FACTORY \
+  --lookback 200000 \
+  --min-pump 5 \
+  --write-tokens pumped.txt
 
-# 2. Score. Fast, re-run freely while tuning.
+# 2. Ingest only those. Slow and rate-limited, so it runs on the shortlist.
+python -m cabal snapshot --tokens-file pumped.txt --quote 0xWETH --out-dir snapshots
+
+# 3. Score. Fast — re-run freely while tuning.
 python -m cabal analyze --snapshot snapshots/*.json --format markdown --out report.md
 ```
+
+`discover` infers the quote asset from pool composition (the token on one side of
+most pools is the quote), so you do not need to know the chain's WETH address up
+front. Already have snapshots and just want the triage? `cabal screen --snapshot
+snapshots/*.json --write-tokens pumped.txt`.
+
+If you already know the token you care about, skip straight to step 2.
 
 Point it at a different endpoint or chain:
 
@@ -51,12 +66,31 @@ python -m cabal snapshot --token 0xTOKEN                 # Robinhood Chain prese
 python -m cabal snapshot --chain robinhood-testnet --token 0xTOKEN
 ```
 
-The strongest results come from analyzing **several launches at once** — repeat
-offenders are what separate a cabal from a lucky buyer:
+The strongest results come from analyzing **several pumped launches at once** —
+repeat offenders are what separate a cabal from a lucky buyer:
 
 ```bash
 python -m cabal analyze --snapshot snapshots/*.json --format markdown
 ```
+
+## The pump screen
+
+A token is analyzed only if it cleared all of these. The report lists every
+token considered, passed and skipped, with the multiple it actually reached.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--min-pump` | `3` | Peak price over the launch baseline. The launch baseline is the median of the first few fills, so one odd print cannot set the denominator. |
+| `--min-buyers` | `25` | Unique buyers. Stops four trades between two wallets printing a fake 100x. |
+| `--min-trades` | `20` | Total trades. |
+| `--min-volume` | off | Minimum quote volume in raw units, for filtering thin books. |
+| `--include-unpriced` | off | Keep tokens whose price could not be reconstructed (judged on activity alone). |
+| `--include-duds` | off | Turn the screen off entirely and analyze everything. |
+
+This also sharpens the tool's strongest signal. Once the universe is "coins that
+ran", `cross_token_recidivism` stops meaning *"this wallet buys a lot of tokens"*
+and starts meaning *"this wallet is early on winners"* — which is the thing you
+actually want to know.
 
 ## Signals
 
@@ -89,12 +123,15 @@ python -m cabal analyze --snapshot snapshots/*.json --config cfg.json
 ## How it works
 
 ```
-RPC ──► snapshot ──► timeline ──► features ──► detectors ──► score
-      (transfers,   (deploy /    (per wallet)  (11 signals)  (+ clusters)
-       funding)      liquidity /
-                     first trade,
-                     pump windows)
+RPC ──► discover ──► screen ──► snapshot ──► timeline ──► features ──► detectors ──► score
+        (pools      (did it     (transfers,  (deploy /    (per wallet)  (11 signals)  (+ clusters)
+         created)    pump?)      funding)     liquidity /
+                        │                     first trade,
+                     duds ✗                   pump windows)
 ```
+
+The screen sits early and deliberately: it needs only transfers, no funding scan
+and no deploy-block search, so rejecting a token costs almost nothing.
 
 Three anchors drive everything: **deploy** (first mint), **liquidity** (tokens
 first reach a pool — the sale opens), and **first trade** (first pool→wallet buy
@@ -127,8 +164,13 @@ Some deliberate choices:
 - **Pool identification drives most signals.** Pools are found from configured
   factories, `--pool` flags, and a two-way-flow heuristic that can also match a
   CEX hot wallet. Pass `--pool` explicitly when you know the venue.
-- **Pricing needs the quote leg.** Without `--quote`, no price series exists, so
-  `bought_before_pump` and `sell_into_pump` stay silent and the report says so.
+- **Pricing needs a quote leg in the same transaction.** Without `--quote` the
+  tool prices against whatever counter-asset moved in the same tx, which is right
+  for a simple swap and wrong for some multi-hop routes. Pools quoted in *native*
+  ETH emit no ERC-20 transfer for the quote side at all, so those tokens come out
+  unpriced — the screen skips them unless you pass `--include-unpriced`.
+- **The screen judges outcome, not quality.** A coin that pumped on wash trading
+  passes; `--min-buyers` and `--min-volume` are the levers against that.
 - **Funding-graph signals need an archive-capable endpoint**; the public rate-
   limited RPC will be slow, and `find_deploy_block` needs historical state.
   Without funding data the allocation and timing signals still work.
@@ -147,9 +189,10 @@ Some deliberate choices:
 cd cabal_detector && python -m pytest -q
 ```
 
-49 tests. The end-to-end ones run against a synthetic launch with planted
+69 tests. The end-to-end ones run against a synthetic launch with planted
 insiders, snipers and retail, and assert both directions: every planted wallet is
-flagged, and no innocent wallet is.
+flagged, and no innocent wallet is. A second fixture is a launch with the same
+insider structure that simply never runs — its wallets must never be named.
 
 ## Layout
 
@@ -161,12 +204,14 @@ cabal/
   models.py      Transfer / FundingEdge / Trade / snapshot / report types
   sources/       JSON-RPC ingestion, snapshot persistence
   ingest.py      RPC orchestration -> TokenSnapshot
+  screen.py      the pump test: is this coin worth analyzing at all?
+  discover.py    sweep a block range for launches, keep the winners
   timeline.py    launch anchors, trade reconstruction, pump detection
   features.py    per-wallet feature extraction
   detectors.py   the 11 signals
   clustering.py  funding-graph union-find
   analysis.py    scoring and cross-token aggregation
   report.py      text / markdown / CSV / JSON output
-  cli.py         snapshot | analyze | demo
+  cli.py         discover | screen | snapshot | analyze | demo
   synthetic.py   ground-truth fixture
 ```

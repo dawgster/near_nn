@@ -260,10 +260,17 @@ class ClusterReport:
 @dataclass
 class AnalysisResult:
     tokens: list[str]
+    """Tokens that were actually analyzed, i.e. those that cleared the screen."""
     wallets: list[WalletReport]
     clusters: list[ClusterReport]
     timelines: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    screened: list[Any] = field(default_factory=list)
+    """One ``PumpVerdict`` per token considered, passed and rejected alike."""
+
+    @property
+    def rejected(self) -> list[Any]:
+        return [v for v in self.screened if not v.passed]
 
     def flagged(self, min_score: float = 0.0) -> list[WalletReport]:
         return [w for w in self.wallets if w.score > min_score]
@@ -274,6 +281,7 @@ class AnalysisResult:
             "timelines": self.timelines,
             "wallets": [w.to_json() for w in self.wallets],
             "clusters": [c.to_json() for c in self.clusters],
+            "screened": [v.to_json() for v in self.screened],
             "warnings": self.warnings,
         }
 

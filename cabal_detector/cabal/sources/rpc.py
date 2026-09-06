@@ -289,6 +289,40 @@ class RpcSource:
         pools.discard(normalize("0x" + "0" * 40))
         return sorted(pools)
 
+    def discover_pools(
+        self,
+        from_block: int,
+        to_block: int,
+        v2_factories: Sequence[str] = (),
+        v3_factories: Sequence[str] = (),
+    ) -> list[tuple[str, str, str]]:
+        """Every pool created in a block range, as ``(pool, token0, token1)``.
+
+        This is the cheap way to enumerate launches: one log query per factory
+        instead of a scan of the whole chain's transfer traffic.
+        """
+        out: list[tuple[str, str, str]] = []
+        for factory in v2_factories:
+            for log in self.get_logs(
+                from_block, to_block, address=factory, topics=[V2_PAIR_CREATED_TOPIC]
+            ):
+                topics = log.get("topics") or []
+                if len(topics) < 3:
+                    continue
+                pool = topic_to_address(log.get("data", "0x")[:66])
+                out.append((pool, topic_to_address(topics[1]), topic_to_address(topics[2])))
+        for factory in v3_factories:
+            for log in self.get_logs(
+                from_block, to_block, address=factory, topics=[V3_POOL_CREATED_TOPIC]
+            ):
+                topics = log.get("topics") or []
+                if len(topics) < 3:
+                    continue
+                data = log.get("data", "0x")
+                pool = topic_to_address("0x" + data[2:][64:128])
+                out.append((pool, topic_to_address(topics[1]), topic_to_address(topics[2])))
+        return out
+
     def find_deploy_block(self, token: str, low: int = 0, high: int | None = None) -> int:
         """Binary-search the first block where the contract has code.
 

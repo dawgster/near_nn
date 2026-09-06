@@ -103,7 +103,8 @@ To map a custom domain, edit `cloudflare-worker/wrangler*.jsonc` and deploy the 
   Python tool that flags insider ("cabal") wallets around a token launch on
   [Robinhood Chain](https://docs.robinhood.com/chain/connecting) or any other EVM
   chain — wallets allocated supply before liquidity existed, wallets that bought
-  the opening block, and wallets that keep showing up early across launches. Run
+  the opening block, and wallets that keep showing up early across launches.
+  Coins that never pumped are screened out before any wallet is named. Run
   `python -m cabal demo` in that directory to see it work with no RPC endpoint.
 
 ## Per-contract details

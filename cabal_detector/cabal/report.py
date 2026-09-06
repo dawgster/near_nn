@@ -39,8 +39,30 @@ def to_csv(result: AnalysisResult, min_score: float = 0.0) -> str:
     return buf.getvalue()
 
 
+def _screen_lines(result: AnalysisResult) -> list[str]:
+    if not result.screened:
+        return []
+    lines = ["## Pump screen", ""]
+    lines.append("| Token | Verdict | Peak | Buyers | Trades | Notes |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
+    for v in sorted(result.screened, key=lambda v: (v.passed, v.multiple), reverse=True):
+        lines.append(
+            f"| `{v.symbol or v.token}` | {'analyzed' if v.passed else 'skipped'} | "
+            f"{v.multiple:.2f}x | {v.unique_buyers} | {v.trades} | {'; '.join(v.reasons)} |"
+        )
+    passed = sum(1 for v in result.screened if v.passed)
+    lines.append("")
+    lines.append(
+        f"_{passed} of {len(result.screened)} token(s) cleared the screen; wallets "
+        f"below come only from those._"
+    )
+    lines.append("")
+    return lines
+
+
 def to_markdown(result: AnalysisResult, min_score: float = 0.0, limit: int = 50) -> str:
     lines: list[str] = ["# Cabal wallet report", ""]
+    lines.extend(_screen_lines(result))
 
     for token, tl in result.timelines.items():
         lines.append(f"## Token `{tl.get('symbol') or token}` (`{token}`)")
@@ -114,8 +136,18 @@ def to_markdown(result: AnalysisResult, min_score: float = 0.0, limit: int = 50)
 
 def to_text(result: AnalysisResult, min_score: float = 0.0, limit: int = 50) -> str:
     rows = result.flagged(min_score)[:limit]
+    header: list[str] = []
+    if result.screened:
+        passed = sum(1 for v in result.screened if v.passed)
+        header.append(
+            f"pump screen: {passed}/{len(result.screened)} token(s) analyzed, "
+            f"{len(result.screened) - passed} skipped as duds"
+        )
+        for v in result.rejected:
+            header.append(f"  skipped {v.symbol or v.token}: {'; '.join(v.reasons)}")
+        header.append("")
     width = 4 + 44 + 8 + 15 + 9
-    out = [
+    out = header + [
         f"{'#':<4}{'wallet':<44}{'score':<8}{'tier':<15}{'cluster':<9}reasons",
         "-" * (width + 8),
     ]

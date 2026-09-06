@@ -17,6 +17,7 @@ from .models import (
     WalletReport,
     normalize,
 )
+from .screen import PumpVerdict, ScreenCriteria, screen_timeline
 from .timeline import TokenTimeline, build_timeline
 
 
@@ -27,6 +28,7 @@ class TokenAnalysis:
     context: TokenContext
     signals: dict[str, list[Signal]] = field(default_factory=dict)
     clusters: list[Cluster] = field(default_factory=list)
+    verdict: PumpVerdict | None = None
 
 
 def estimate_supply(snapshot: TokenSnapshot, timeline: TokenTimeline) -> int:
@@ -64,7 +66,13 @@ def analyze_token(
     *,
     quote_tokens: set[str] | None = None,
     extra_pools: set[str] | None = None,
+    criteria: ScreenCriteria | None = None,
 ) -> TokenAnalysis:
+    """Score one token's wallets, unless the pump screen rejects the token.
+
+    A rejected token returns an analysis with no signals: nobody made money on
+    it, so naming its early wallets would only add noise.
+    """
     config = config or DetectorConfig()
     timeline = build_timeline(
         snapshot,
@@ -72,6 +80,16 @@ def analyze_token(
         extra_pools=extra_pools,
         pump_multiple=config.pump_multiple,
     )
+
+    verdict = screen_timeline(timeline, criteria) if criteria is not None else None
+    if verdict is not None and not verdict.passed:
+        return TokenAnalysis(
+            snapshot=snapshot,
+            timeline=timeline,
+            context=TokenContext(timeline=timeline, activity={}, config=config),
+            verdict=verdict,
+        )
+
     activity = build_activity(snapshot, timeline)
     supply = estimate_supply(snapshot, timeline)
 
@@ -111,6 +129,7 @@ def analyze_token(
         context=ctx,
         signals=signals,
         clusters=clusters,
+        verdict=verdict,
     )
 
 
@@ -121,20 +140,35 @@ def analyze(
     quote_tokens: set[str] | None = None,
     extra_pools: set[str] | None = None,
     ignore: set[str] | None = None,
+    criteria: ScreenCriteria | None = None,
 ) -> AnalysisResult:
     """Score wallets across one or more token launches.
 
+    ``criteria`` gates which tokens are analyzed at all: tokens that never pumped
+    are screened out and contribute no wallets. Pass ``None`` to score every
+    token regardless of outcome.
+
     Per-signal scores are taken as the best observation across tokens rather than
     summed, so a wallet cannot be pushed over a threshold by one launch alone;
-    repetition instead surfaces through the recidivism signal.
+    repetition instead surfaces through the recidivism signal -- which, once the
+    universe is screened, means "early on winners" rather than "buys a lot".
     """
     config = config or DetectorConfig()
     ignore = {normalize(a) for a in (ignore or set())}
 
     analyses = [
-        analyze_token(s, config, quote_tokens=quote_tokens, extra_pools=extra_pools)
+        analyze_token(
+            s,
+            config,
+            quote_tokens=quote_tokens,
+            extra_pools=extra_pools,
+            criteria=criteria,
+        )
         for s in snapshots
     ]
+    screened = [a.verdict for a in analyses if a.verdict is not None]
+    rejected = [v for v in screened if not v.passed]
+    analyses = [a for a in analyses if a.verdict is None or a.verdict.passed]
 
     best: dict[str, dict[str, Signal]] = defaultdict(dict)
     wallet_tokens: dict[str, list[str]] = defaultdict(list)
@@ -202,10 +236,17 @@ def analyze(
                     reports[member].cluster_id = cluster_id
 
     ordered = sorted(reports.values(), key=lambda r: (-r.score, r.wallet))
+    for verdict in rejected:
+        warnings.append(
+            f"[{verdict.symbol or verdict.token}] screened out: "
+            + "; ".join(verdict.reasons)
+        )
+
     return AnalysisResult(
         tokens=[a.timeline.token for a in analyses],
         wallets=ordered,
         clusters=sorted(cluster_reports, key=lambda c: -c.score),
         timelines={a.timeline.token: a.timeline.to_json() for a in analyses},
         warnings=warnings,
+        screened=screened,
     )

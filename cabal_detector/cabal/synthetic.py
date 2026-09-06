@@ -47,10 +47,18 @@ def generate_launch(
     deploy_block: int = 1000,
     symbol: str = "CABAL",
     salt: int = 0,
+    price_growth: float = 1.06,
+    n_sellers: int = 5,
 ) -> SyntheticLaunch:
-    """One launch. ``salt`` shifts every address so separate launches get
-    separate participants -- otherwise cross-token signals fire on the fixture's
-    own reuse of addresses rather than on anything the detectors found."""
+    """One launch.
+
+    ``salt`` shifts every address so separate launches get separate
+    participants -- otherwise cross-token signals fire on the fixture's own reuse
+    of addresses rather than on anything the detectors found.
+
+    ``price_growth`` is the per-buy price multiplier: >1 makes the token run,
+    <=1 makes it a dud that the pump screen should reject.
+    """
     rng = random.Random(seed)
     transfers: list[Transfer] = []
     funding: list[FundingEdge] = []
@@ -148,7 +156,7 @@ def generate_launch(
     block = liq_block + 3
     for i, wallet in enumerate(retail):
         block += rng.randint(1, 6)
-        price *= 1.06  # steady run-up: ~6x over the retail window
+        price *= price_growth  # >1 runs up, <=1 goes nowhere
         buy(wallet, block, int(supply * rng.uniform(0.0005, 0.002)), price)
 
     peak_block = block + 2
@@ -161,7 +169,7 @@ def generate_launch(
         sell(wallet, peak_block + len(insiders) + i, int(supply * 0.009), peak_price * 0.95)
 
     # --- and a few retail wallets exit at a loss -------------------------
-    for i, wallet in enumerate(retail[:5]):
+    for i, wallet in enumerate(retail[:n_sellers]):
         sell(wallet, peak_block + 10 + i, int(supply * 0.0004), peak_price * 0.55)
 
     snapshot = TokenSnapshot(
@@ -186,6 +194,20 @@ def generate_launch(
         snipers=snipers,
         retail=retail,
     )
+
+
+def generate_dud(seed: int = 11, **kwargs) -> SyntheticLaunch:
+    """A launch with the same insider structure that simply never runs.
+
+    The wallets are just as guilty-looking; the point is that nobody made money,
+    so the screen should drop the token before any of them are named.
+    """
+    kwargs.setdefault("price_growth", 0.995)
+    kwargs.setdefault("symbol", "DUD")
+    kwargs.setdefault("token", "0xdeadbee" + "0" * 33)
+    kwargs.setdefault("salt", 900)  # its own participants, distinct from a runner
+    kwargs.setdefault("deploy_block", 500_000)
+    return generate_launch(seed=seed, **kwargs)
 
 
 def generate_series(

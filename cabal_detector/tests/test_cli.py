@@ -113,3 +113,75 @@ def test_collect_token_orders_its_rpc_work():
     assert launch.pool in out.pools
     assert out.funding, "the early cohort should have produced funding edges"
     assert launch.deployer in source.funded
+
+
+def test_screen_command_separates_runners_from_duds(tmp_path, capsys):
+    from cabal.synthetic import generate_dud
+
+    runner, dud = generate_launch(), generate_dud()
+    run_path = save_snapshot(runner.snapshot, tmp_path / "run.json")
+    dud_path = save_snapshot(dud.snapshot, tmp_path / "dud.json")
+    tokens = tmp_path / "pumped.txt"
+
+    assert main([
+        "screen", "--snapshot", str(run_path), "--snapshot", str(dud_path),
+        "--write-tokens", str(tokens),
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "PASS" in out and "skip" in out
+    assert "1/2 token(s) worth analyzing" in out
+    assert tokens.read_text().strip() == runner.snapshot.token
+
+
+def test_screen_json_format(tmp_path, capsys):
+    path = save_snapshot(generate_launch().snapshot, tmp_path / "run.json")
+    assert main(["screen", "--snapshot", str(path), "--format", "json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert rows[0]["passed"] and rows[0]["multiple"] > 3
+
+
+def test_analyze_screens_duds_out_by_default(tmp_path, capsys):
+    from cabal.synthetic import generate_dud
+
+    dud = generate_dud()
+    path = save_snapshot(dud.snapshot, tmp_path / "dud.json")
+    assert main(["analyze", "--snapshot", str(path), "--format", "csv", "--min-score", "0"]) == 0
+    captured = capsys.readouterr()
+    assert "screened out DUD" in captured.err
+    assert dud.insiders[0] not in captured.out
+
+
+def test_include_duds_disables_the_screen(tmp_path, capsys):
+    from cabal.synthetic import generate_dud
+
+    dud = generate_dud()
+    path = save_snapshot(dud.snapshot, tmp_path / "dud.json")
+    main(["analyze", "--snapshot", str(path), "--format", "csv", "--min-score", "0", "--include-duds"])
+    assert dud.insiders[0] in capsys.readouterr().out
+
+
+def test_min_pump_threshold_is_honoured(tmp_path, capsys):
+    launch = generate_launch()
+    path = save_snapshot(launch.snapshot, tmp_path / "run.json")
+    main(["analyze", "--snapshot", str(path), "--format", "csv", "--min-score", "0", "--min-pump", "100"])
+    captured = capsys.readouterr()
+    assert "screened out" in captured.err
+    assert launch.insiders[0] not in captured.out
+
+
+def test_snapshot_reads_a_tokens_file(tmp_path, capsys):
+    """`discover`/`screen` write a token list; `snapshot` should consume it."""
+    tokens = tmp_path / "tokens.txt"
+    tokens.write_text("# from discover\n0x" + "ab" * 20 + "\n\n")
+    # No RPC here: a bad URL proves the file was read and the token reached ingest.
+    code = main([
+        "snapshot", "--tokens-file", str(tokens), "--rpc-url",
+        "http://127.0.0.1:1/none", "--out-dir", str(tmp_path), "--quiet",
+    ])
+    assert code == 1
+    assert "RPC call failed" in capsys.readouterr().err
+
+
+def test_snapshot_without_tokens_fails_cleanly(capsys):
+    assert main(["snapshot", "--rpc-url", "http://127.0.0.1:1/none"]) == 2
+    assert "no tokens given" in capsys.readouterr().err
